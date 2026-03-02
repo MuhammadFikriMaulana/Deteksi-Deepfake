@@ -8,7 +8,7 @@ import pickle
 import tempfile
 import math
 import os
-from moviepy.editor import VideoFileClip # Library agar video bisa diputar di web
+from moviepy.editor import VideoFileClip 
 
 # --- PENGATURAN HALAMAN WEB ---
 st.set_page_config(page_title="Deepfake Detector VAE", page_icon="🕵️‍♀️", layout="centered")
@@ -40,7 +40,7 @@ div[data-testid="stFileUploader"] section * {
     color: #FFFFFF !important; 
 }
 
-/* Memperbaiki teks nama file yang sudah diunggah (palsu3.mp4, dll) */
+/* Memperbaiki teks nama file yang sudah diunggah */
 div[data-testid="stUploadedFile"] {
     background-color: rgba(255,255,255, 0.1) !important;
     border-radius: 5px;
@@ -131,10 +131,16 @@ outputs_with_loss = VAELossLayer(input_dim)([inputs, outputs_vae, z_mean_out, z_
 
 vae = Model(inputs, outputs_with_loss)
 
-# --- CACHE AI MODEL ---
+# --- CACHE AI MODEL DENGAN TRIK PANCINGAN DATA KOSONG ---
 @st.cache_resource
 def load_ai_model():
+    # 1. Trik Pancingan: Lempar data kosong agar TensorFlow terbangun dan merakit variabel Dense-nya
+    dummy_input = tf.zeros((1, input_dim))
+    vae(dummy_input)
+    
+    # 2. Setelah variabelnya siap, baru kita muat file otaknya
     vae.load_weights('model_vae_bobot.weights.h5')
+    
     with open('scaler.pkl', 'rb') as f:
         scaler = pickle.load(f)
     return vae, encoder, decoder, scaler
@@ -142,7 +148,7 @@ def load_ai_model():
 try:
     vae_model, encoder_model, decoder_model, scaler_model = load_ai_model()
 except Exception as e:
-    st.error(f"⚠️ Gagal memuat model. Pastikan file bobot dan scaler.pkl ada di folder ini. Error: {e}")
+    st.error(f"⚠️ Gagal memuat model. Error: {e}")
     st.stop()
 
 mp_face_mesh = mp.solutions.face_mesh
