@@ -1,6 +1,6 @@
-streamlit==1.32.0
+streamlit
 numpy
 opencv-python-headless
 mediapipe
-tensorflow-cpu==2.15.0
+tensorflow-cpu
 moviepy==1.0.3
