@@ -86,63 +86,62 @@ st.markdown("---")
 # 🔥 ANGKA THRESHOLD TERBAIK ANDA 🔥
 THRESHOLD_OPTIMAL = 0.001116
 
-# --- 1. MEMBANGUN ARSITEKTUR VAE ---
 seq_length = 60 
 input_dim = seq_length * 5 
 latent_dim = 16 
 
-inputs = layers.Input(shape=(input_dim,))
-h = layers.Dense(128, activation='relu')(inputs)
-h = layers.Dense(64, activation='relu')(h)
-z_mean = layers.Dense(latent_dim)(h)
-z_log_var = layers.Dense(latent_dim)(h)
-
-class SamplingLayer(layers.Layer):
-    def call(self, inputs_sampling):
-        z_mean_val, z_log_var_val = inputs_sampling
-        batch = tf.shape(z_mean_val)[0]
-        dim = tf.shape(z_mean_val)[1]
-        epsilon = tf.random.normal(shape=(batch, dim))
-        return z_mean_val + tf.exp(0.5 * z_log_var_val) * epsilon
-
-z = SamplingLayer()([z_mean, z_log_var])
-encoder = Model(inputs, [z_mean, z_log_var, z], name='encoder')
-
-latent_inputs = layers.Input(shape=(latent_dim,))
-h_decoded = layers.Dense(64, activation='relu')(latent_inputs)
-h_decoded = layers.Dense(128, activation='relu')(h_decoded)
-outputs = layers.Dense(input_dim, activation='sigmoid')(h_decoded)
-decoder = Model(latent_inputs, outputs, name='decoder')
-
-class VAELossLayer(layers.Layer):
-    def __init__(self, input_dim_val, **kwargs):
-        super().__init__(**kwargs)
-        self.input_dim_val = input_dim_val
-    def call(self, inputs_loss):
-        inputs_val, outputs_vae_val, z_mean_val, z_log_var_val = inputs_loss
-        reconstruction_loss = tf.reduce_mean(tf.square(inputs_val - outputs_vae_val)) * self.input_dim_val
-        kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(1 + z_log_var_val - tf.square(z_mean_val) - tf.exp(z_log_var_val), axis=-1))
-        self.add_loss(reconstruction_loss + kl_loss)
-        return outputs_vae_val
-
-z_mean_out, z_log_var_out, z_out = encoder(inputs)
-outputs_vae = decoder(z_out)
-outputs_with_loss = VAELossLayer(input_dim)([inputs, outputs_vae, z_mean_out, z_log_var_out])
-
-vae = Model(inputs, outputs_with_loss)
-
-# --- CACHE AI MODEL DENGAN TRIK PANCINGAN DATA KOSONG ---
+# --- MEMBANGUN ARSITEKTUR & CACHE AI MODEL ---
 @st.cache_resource
 def load_ai_model():
-    # 1. Trik Pancingan: Lempar data kosong agar TensorFlow terbangun dan merakit variabel Dense-nya
-    dummy_input = tf.zeros((1, input_dim))
-    vae(dummy_input)
+    # Mencegah nama layer bertambah terus saat web di-refresh (Solusi Bug Streamlit)
+    tf.keras.backend.clear_session()
     
-    # 2. Setelah variabelnya siap, baru kita muat file otaknya
+    inputs = layers.Input(shape=(input_dim,))
+    h = layers.Dense(128, activation='relu')(inputs)
+    h = layers.Dense(64, activation='relu')(h)
+    z_mean = layers.Dense(latent_dim)(h)
+    z_log_var = layers.Dense(latent_dim)(h)
+
+    class SamplingLayer(layers.Layer):
+        def call(self, inputs_sampling):
+            z_mean_val, z_log_var_val = inputs_sampling
+            batch = tf.shape(z_mean_val)[0]
+            dim = tf.shape(z_mean_val)[1]
+            epsilon = tf.random.normal(shape=(batch, dim))
+            return z_mean_val + tf.exp(0.5 * z_log_var_val) * epsilon
+
+    z = SamplingLayer()([z_mean, z_log_var])
+    encoder = Model(inputs, [z_mean, z_log_var, z], name='encoder')
+
+    latent_inputs = layers.Input(shape=(latent_dim,))
+    h_decoded = layers.Dense(64, activation='relu')(latent_inputs)
+    h_decoded = layers.Dense(128, activation='relu')(h_decoded)
+    outputs = layers.Dense(input_dim, activation='sigmoid')(h_decoded)
+    decoder = Model(latent_inputs, outputs, name='decoder')
+
+    class VAELossLayer(layers.Layer):
+        def __init__(self, input_dim_val, **kwargs):
+            super().__init__(**kwargs)
+            self.input_dim_val = input_dim_val
+        def call(self, inputs_loss):
+            inputs_val, outputs_vae_val, z_mean_val, z_log_var_val = inputs_loss
+            reconstruction_loss = tf.reduce_mean(tf.square(inputs_val - outputs_vae_val)) * self.input_dim_val
+            kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(1 + z_log_var_val - tf.square(z_mean_val) - tf.exp(z_log_var_val), axis=-1))
+            self.add_loss(reconstruction_loss + kl_loss)
+            return outputs_vae_val
+
+    z_mean_out, z_log_var_out, z_out = encoder(inputs)
+    outputs_vae = decoder(z_out)
+    outputs_with_loss = VAELossLayer(input_dim)([inputs, outputs_vae, z_mean_out, z_log_var_out])
+
+    vae = Model(inputs, outputs_with_loss)
+    
+    # Load bobot (TensorFlow 2.15 akan otomatis menyesuaikan struktur, masa bodoh dengan nama layer!)
     vae.load_weights('model_vae_bobot.weights.h5')
     
     with open('scaler.pkl', 'rb') as f:
         scaler = pickle.load(f)
+        
     return vae, encoder, decoder, scaler
 
 try:
@@ -159,17 +158,15 @@ def hitung_jarak(p1, p2, img_w, img_h):
     x2, y2 = int(p2.x * img_w), int(p2.y * img_h)
     return math.hypot(x1 - x2, y1 - y2)
 
-# --- 2. ANTARMUKA UNGGAH VIDEO ---
+# --- ANTARMUKA UNGGAH VIDEO ---
 uploaded_file = st.file_uploader("Pilih video untuk diuji (Format: MP4, AVI, MOV)", type=["mp4", "avi", "mov"])
 
 if uploaded_file is not None:
-    # 1. Simpan file video asli untuk dianalisis AI
     tfile_asli = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
     tfile_asli.write(uploaded_file.read())
     nama_file_asli = tfile_asli.name
     tfile_asli.close() 
 
-    # 2. Proses Auto-Convert agar video tidak "Corrupt" di Browser
     nama_file_browser = "video_siap_putar.mp4"
     with st.spinner('Menyiapkan pemutar video untuk web...'):
         try:
@@ -179,11 +176,9 @@ if uploaded_file is not None:
         except Exception as e:
             st.warning("Gagal mengonversi video untuk web, tapi AI tetap akan menganalisis datanya.")
     
-    # 3. Tombol Eksekusi
     if st.button("🔍 Analisis Video Sekarang"):
         with st.spinner('AI sedang memindai pergerakan wajah di setiap frame. Mohon tunggu...'):
             
-            # AI membaca dari file asli, bukan file yang di-convert
             cap = cv2.VideoCapture(nama_file_asli)
             data_pose = []
             
@@ -226,7 +221,7 @@ if uploaded_file is not None:
             except Exception:
                 pass 
             
-            # --- 4. PROSES PREDIKSI AI ---
+            # --- PROSES PREDIKSI AI ---
             if len(data_pose) < seq_length:
                 st.warning(f"⚠️ Durasi video terlalu pendek! VAE membutuhkan minimal {seq_length} frame gerakan wajah yang jelas.")
             else:
@@ -240,7 +235,7 @@ if uploaded_file is not None:
                 
                 final_score = np.mean(mse_per_sequence)
                 
-                # --- 5. TAMPILKAN HASILNYA ---
+                # --- TAMPILKAN HASILNYA ---
                 st.markdown("### 📊 Hasil Analisis")
                 
                 col1, col2 = st.columns(2)
