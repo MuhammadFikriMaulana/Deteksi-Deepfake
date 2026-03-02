@@ -3,4 +3,5 @@ numpy
 opencv-python-headless
 mediapipe
 tensorflow-cpu
+tf-keras
 moviepy==1.0.3
