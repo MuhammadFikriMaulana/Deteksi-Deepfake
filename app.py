@@ -10,57 +10,22 @@ import math
 import os
 from moviepy.editor import VideoFileClip 
 
-# --- PENGATURAN HALAMAN WEB ---
 st.set_page_config(page_title="Deepfake Detector VAE", page_icon="🕵️‍♀️", layout="centered")
 
-# --- PENGATURAN BACKGROUND & TAMPILAN GELAP ---
 latar_belakang = """
 <style>
-[data-testid="stAppViewContainer"] {
-    background-color: #0E1117;
-    background-image: radial-gradient(circle at 50% 0%, #1f2937 0%, #000000 100%);
-}
-[data-testid="stHeader"] {
-    background: rgba(0,0,0,0);
-}
-h1, h2, h3, h4, h5, h6, p, label, span, small, li {
-    color: #FFFFFF !important;
-}
-div[data-testid="stFileUploader"] section {
-    background-color: #1E1E1E !important; 
-    border: 2px dashed #3b82f6 !important; 
-    border-radius: 10px;
-}
-div[data-testid="stFileUploader"] section * {
-    color: #FFFFFF !important; 
-}
-div[data-testid="stUploadedFile"] {
-    background-color: rgba(255,255,255, 0.1) !important;
-    border-radius: 5px;
-}
-div[data-testid="stUploadedFile"] * {
-    color: #FFFFFF !important;
-}
-div[data-testid="stButton"] button {
-    background-color: #3b82f6 !important; 
-    border: none !important;
-    border-radius: 8px !important;
-    padding: 10px 24px !important;
-    font-weight: bold !important;
-}
-div[data-testid="stButton"] button * {
-    color: #FFFFFF !important; 
-}
-div[data-testid="stButton"] button:hover {
-    background-color: #2563eb !important; 
-    border: 1px solid #FFFFFF !important;
-}
-div[data-testid="stMetricValue"] {
-    color: #FFFFFF !important;
-}
-div[data-testid="stMetricLabel"] {
-    color: #CCCCCC !important;
-}
+[data-testid="stAppViewContainer"] { background-color: #0E1117; background-image: radial-gradient(circle at 50% 0%, #1f2937 0%, #000000 100%); }
+[data-testid="stHeader"] { background: rgba(0,0,0,0); }
+h1, h2, h3, h4, h5, h6, p, label, span, small, li { color: #FFFFFF !important; }
+div[data-testid="stFileUploader"] section { background-color: #1E1E1E !important; border: 2px dashed #3b82f6 !important; border-radius: 10px; }
+div[data-testid="stFileUploader"] section * { color: #FFFFFF !important; }
+div[data-testid="stUploadedFile"] { background-color: rgba(255,255,255, 0.1) !important; border-radius: 5px; }
+div[data-testid="stUploadedFile"] * { color: #FFFFFF !important; }
+div[data-testid="stButton"] button { background-color: #3b82f6 !important; border: none !important; border-radius: 8px !important; padding: 10px 24px !important; font-weight: bold !important; }
+div[data-testid="stButton"] button * { color: #FFFFFF !important; }
+div[data-testid="stButton"] button:hover { background-color: #2563eb !important; border: 1px solid #FFFFFF !important; }
+div[data-testid="stMetricValue"] { color: #FFFFFF !important; }
+div[data-testid="stMetricLabel"] { color: #CCCCCC !important; }
 </style>
 """
 st.markdown(latar_belakang, unsafe_allow_html=True)
@@ -69,25 +34,22 @@ st.title("🕵️‍♀️ Sistem Deteksi Video Deepfake")
 st.write("Aplikasi analisis anomali pergerakan wajah menggunakan Variational Autoencoder (VAE).")
 st.markdown("---")
 
-# 🔥 ANGKA THRESHOLD TERBAIK ANDA 🔥
 THRESHOLD_OPTIMAL = 0.001116
-
 seq_length = 60 
 num_features = 5
 input_dim = seq_length * num_features 
 latent_dim = 16 
 
-# --- MEMBANGUN ARSITEKTUR ASLI VAE & CACHE ---
 @st.cache_resource
 def load_ai_model():
     tf.keras.backend.clear_session()
     
-    # 1. ARSITEKTUR ENCODER
-    inputs = layers.Input(shape=(input_dim,))
-    h = layers.Dense(128, activation='relu')(inputs)
-    h = layers.Dense(64, activation='relu')(h)
-    z_mean = layers.Dense(latent_dim)(h)
-    z_log_var = layers.Dense(latent_dim)(h)
+    # KTP YANG SAMA PERSIS DENGAN HASIL TRAINING
+    inputs = layers.Input(shape=(input_dim,), name='input_layer')
+    h = layers.Dense(128, activation='relu', name='enc_dense_1')(inputs)
+    h = layers.Dense(64, activation='relu', name='enc_dense_2')(h)
+    z_mean = layers.Dense(latent_dim, name='z_mean')(h)
+    z_log_var = layers.Dense(latent_dim, name='z_log_var')(h)
 
     class SamplingLayer(layers.Layer):
         def call(self, inputs_sampling):
@@ -97,17 +59,15 @@ def load_ai_model():
             epsilon = tf.random.normal(shape=(batch, dim))
             return z_mean_val + tf.exp(0.5 * z_log_var_val) * epsilon
 
-    z = SamplingLayer()([z_mean, z_log_var])
+    z = SamplingLayer(name='sampling_layer')([z_mean, z_log_var])
     encoder = Model(inputs, [z_mean, z_log_var, z], name='encoder')
 
-    # 2. ARSITEKTUR DECODER
-    latent_inputs = layers.Input(shape=(latent_dim,))
-    h_decoded = layers.Dense(64, activation='relu')(latent_inputs)
-    h_decoded = layers.Dense(128, activation='relu')(h_decoded)
-    outputs = layers.Dense(input_dim, activation='sigmoid')(h_decoded)
+    latent_inputs = layers.Input(shape=(latent_dim,), name='dec_input_layer')
+    h_decoded = layers.Dense(64, activation='relu', name='dec_dense_1')(latent_inputs)
+    h_decoded = layers.Dense(128, activation='relu', name='dec_dense_2')(h_decoded)
+    outputs = layers.Dense(input_dim, activation='sigmoid', name='dec_output_layer')(h_decoded)
     decoder = Model(latent_inputs, outputs, name='decoder')
 
-    # 3. PERHITUNGAN LOSS ASLI
     class VAELossLayer(layers.Layer):
         def __init__(self, input_dim_val, **kwargs):
             super().__init__(**kwargs)
@@ -125,12 +85,11 @@ def load_ai_model():
 
     z_mean_out, z_log_var_out, z_out = encoder(inputs)
     outputs_vae = decoder(z_out)
-    outputs_with_loss = VAELossLayer(input_dim)([inputs, outputs_vae, z_mean_out, z_log_var_out])
+    outputs_with_loss = VAELossLayer(input_dim, name='vae_loss_layer')([inputs, outputs_vae, z_mean_out, z_log_var_out])
 
     vae = Model(inputs, outputs_with_loss, name='vae')
     vae.compile(optimizer='adam')
     
-    # 4. Trik Pancingan & Memuat Bobot
     dummy_input = tf.zeros((1, input_dim))
     vae(dummy_input)
     vae.load_weights('model_vae_bobot.weights.h5')
@@ -154,7 +113,6 @@ def hitung_jarak(p1, p2, img_w, img_h):
     x2, y2 = int(p2.x * img_w), int(p2.y * img_h)
     return math.hypot(x1 - x2, y1 - y2)
 
-# --- ANTARMUKA UNGGAH VIDEO ---
 uploaded_file = st.file_uploader("Pilih video untuk diuji (Format: MP4, AVI, MOV)", type=["mp4", "avi", "mov"])
 
 if uploaded_file is not None:
@@ -169,7 +127,7 @@ if uploaded_file is not None:
             clip = VideoFileClip(nama_file_asli)
             clip.write_videofile(nama_file_browser, codec="libx264", audio=False, logger=None)
             st.video(nama_file_browser)
-        except Exception as e:
+        except Exception:
             st.warning("Gagal mengonversi video untuk web, tapi AI tetap akan menganalisis datanya.")
     
     if st.button("🔍 Analisis Video Sekarang"):
@@ -217,7 +175,6 @@ if uploaded_file is not None:
             except Exception:
                 pass 
             
-            # --- PROSES PREDIKSI AI ---
             if len(data_pose) < seq_length:
                 st.warning(f"⚠️ Durasi video terlalu pendek! VAE membutuhkan minimal {seq_length} frame gerakan wajah yang jelas.")
             else:
@@ -231,16 +188,14 @@ if uploaded_file is not None:
                 
                 final_score = np.mean(mse_per_sequence)
                 
-                # --- TAMPILKAN HASILNYA ---
                 st.markdown("### 📊 Hasil Analisis")
-                
                 col1, col2 = st.columns(2)
                 col1.metric("Skor Error (MSE)", f"{final_score:.6f}")
                 col2.metric("Batas Toleransi (Threshold)", f"{THRESHOLD_OPTIMAL:.6f}")
                 
                 if final_score < THRESHOLD_OPTIMAL:
                     st.error("🚨 KEPUTUSAN: VIDEO INI TERDETEKSI SEBAGAI DEEPFAKE / PALSU!")
-                    st.info("Alasan AI: Pergerakan wajah (mata & mulut) terlalu kaku atau rekonstruksi geometrinya terlampau mulus sehingga menghasilkan skor error di bawah batas kewajaran manusia alami.")
+                    st.info("Alasan AI: Pergerakan wajah (mata & mulut) terlalu kaku atau rekonstruksi geometrinya terlampau mulus.")
                 else:
                     st.success("✅ KEPUTUSAN: VIDEO INI TERDETEKSI SEBAGAI MANUSIA ASLI!")
-                    st.info("Alasan AI: Terdapat fluktuasi gerakan mikro alami pada wajah yang menghasilkan skor error sehat di atas batas ambang Deepfake.")
+                    st.info("Alasan AI: Terdapat fluktuasi gerakan mikro alami pada wajah.")
