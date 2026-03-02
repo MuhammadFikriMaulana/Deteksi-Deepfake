@@ -13,10 +13,9 @@ from moviepy.editor import VideoFileClip
 # --- PENGATURAN HALAMAN WEB ---
 st.set_page_config(page_title="Deepfake Detector VAE", page_icon="🕵️‍♀️", layout="centered")
 
-# --- PENGATURAN BACKGROUND, TOMBOL & TEKS ---
+# --- PENGATURAN BACKGROUND & TAMPILAN GELAP ---
 latar_belakang = """
 <style>
-/* 1. Latar Belakang Gelap */
 [data-testid="stAppViewContainer"] {
     background-color: #0E1117;
     background-image: radial-gradient(circle at 50% 0%, #1f2937 0%, #000000 100%);
@@ -24,13 +23,9 @@ latar_belakang = """
 [data-testid="stHeader"] {
     background: rgba(0,0,0,0);
 }
-
-/* 2. Memaksa Seluruh Teks Umum Menjadi Putih */
 h1, h2, h3, h4, h5, h6, p, label, span, small, li {
     color: #FFFFFF !important;
 }
-
-/* 3. Kotak Uploader File */
 div[data-testid="stFileUploader"] section {
     background-color: #1E1E1E !important; 
     border: 2px dashed #3b82f6 !important; 
@@ -39,8 +34,6 @@ div[data-testid="stFileUploader"] section {
 div[data-testid="stFileUploader"] section * {
     color: #FFFFFF !important; 
 }
-
-/* Memperbaiki teks nama file yang sudah diunggah */
 div[data-testid="stUploadedFile"] {
     background-color: rgba(255,255,255, 0.1) !important;
     border-radius: 5px;
@@ -48,32 +41,25 @@ div[data-testid="stUploadedFile"] {
 div[data-testid="stUploadedFile"] * {
     color: #FFFFFF !important;
 }
-
-/* 4. MEWARNAI TOMBOL ANALISIS UTAMA */
 div[data-testid="stButton"] button {
-    background-color: #3b82f6 !important; /* Biru terang */
+    background-color: #3b82f6 !important; 
     border: none !important;
     border-radius: 8px !important;
     padding: 10px 24px !important;
     font-weight: bold !important;
 }
 div[data-testid="stButton"] button * {
-    color: #FFFFFF !important; /* Teks di dalam tombol paksa putih */
+    color: #FFFFFF !important; 
 }
 div[data-testid="stButton"] button:hover {
-    background-color: #2563eb !important; /* Biru gelap saat disentuh mouse */
+    background-color: #2563eb !important; 
     border: 1px solid #FFFFFF !important;
 }
-
-/* 5. Kotak Metrik Hasil Analisis */
-div[data-testid="metric-container"] {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-radius: 10px;
-    padding: 15px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-}
-div[data-testid="metric-container"] div {
+div[data-testid="stMetricValue"] {
     color: #FFFFFF !important;
+}
+div[data-testid="stMetricLabel"] {
+    color: #CCCCCC !important;
 }
 </style>
 """
@@ -87,15 +73,16 @@ st.markdown("---")
 THRESHOLD_OPTIMAL = 0.001116
 
 seq_length = 60 
-input_dim = seq_length * 5 
+num_features = 5
+input_dim = seq_length * num_features 
 latent_dim = 16 
 
-# --- MEMBANGUN ARSITEKTUR & CACHE AI MODEL ---
+# --- MEMBANGUN ARSITEKTUR ASLI VAE & CACHE ---
 @st.cache_resource
 def load_ai_model():
-    # Mencegah nama layer bertambah terus saat web di-refresh (Solusi Bug Streamlit)
     tf.keras.backend.clear_session()
     
+    # 1. ARSITEKTUR ENCODER
     inputs = layers.Input(shape=(input_dim,))
     h = layers.Dense(128, activation='relu')(inputs)
     h = layers.Dense(64, activation='relu')(h)
@@ -113,30 +100,39 @@ def load_ai_model():
     z = SamplingLayer()([z_mean, z_log_var])
     encoder = Model(inputs, [z_mean, z_log_var, z], name='encoder')
 
+    # 2. ARSITEKTUR DECODER
     latent_inputs = layers.Input(shape=(latent_dim,))
     h_decoded = layers.Dense(64, activation='relu')(latent_inputs)
     h_decoded = layers.Dense(128, activation='relu')(h_decoded)
     outputs = layers.Dense(input_dim, activation='sigmoid')(h_decoded)
     decoder = Model(latent_inputs, outputs, name='decoder')
 
+    # 3. PERHITUNGAN LOSS ASLI
     class VAELossLayer(layers.Layer):
         def __init__(self, input_dim_val, **kwargs):
             super().__init__(**kwargs)
             self.input_dim_val = input_dim_val
         def call(self, inputs_loss):
-            inputs_val, outputs_vae_val, z_mean_val, z_log_var_val = inputs_loss
-            reconstruction_loss = tf.reduce_mean(tf.square(inputs_val - outputs_vae_val)) * self.input_dim_val
-            kl_loss = -0.5 * tf.reduce_mean(tf.reduce_sum(1 + z_log_var_val - tf.square(z_mean_val) - tf.exp(z_log_var_val), axis=-1))
-            self.add_loss(reconstruction_loss + kl_loss)
+            original_inputs, outputs_vae_val, z_mean_val, z_log_var_val = inputs_loss
+            reconstruction_loss = tf.keras.losses.mse(original_inputs, outputs_vae_val)
+            reconstruction_loss *= self.input_dim_val
+            kl_loss = 1 + z_log_var_val - tf.square(z_mean_val) - tf.exp(z_log_var_val)
+            kl_loss = tf.reduce_mean(kl_loss)
+            kl_loss *= -0.5
+            vae_loss = tf.reduce_mean(reconstruction_loss + kl_loss)
+            self.add_loss(vae_loss)
             return outputs_vae_val
 
     z_mean_out, z_log_var_out, z_out = encoder(inputs)
     outputs_vae = decoder(z_out)
     outputs_with_loss = VAELossLayer(input_dim)([inputs, outputs_vae, z_mean_out, z_log_var_out])
 
-    vae = Model(inputs, outputs_with_loss)
+    vae = Model(inputs, outputs_with_loss, name='vae')
+    vae.compile(optimizer='adam')
     
-    # Load bobot (TensorFlow 2.15 akan otomatis menyesuaikan struktur, masa bodoh dengan nama layer!)
+    # 4. Trik Pancingan & Memuat Bobot
+    dummy_input = tf.zeros((1, input_dim))
+    vae(dummy_input)
     vae.load_weights('model_vae_bobot.weights.h5')
     
     with open('scaler.pkl', 'rb') as f:
