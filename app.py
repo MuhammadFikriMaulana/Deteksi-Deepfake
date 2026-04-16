@@ -40,16 +40,17 @@ num_features = 5
 input_dim = seq_length * num_features 
 latent_dim = 16 
 
+# --- MEMBANGUN ARSITEKTUR & CACHE AI MODEL ---
 @st.cache_resource
 def load_ai_model():
     tf.keras.backend.clear_session()
     
-    # KTP YANG SAMA PERSIS DENGAN HASIL TRAINING
-    inputs = layers.Input(shape=(input_dim,), name='input_layer')
-    h = layers.Dense(128, activation='relu', name='enc_dense_1')(inputs)
-    h = layers.Dense(64, activation='relu', name='enc_dense_2')(h)
-    z_mean = layers.Dense(latent_dim, name='z_mean')(h)
-    z_log_var = layers.Dense(latent_dim, name='z_log_var')(h)
+    # 1. BANGUN ENCODER DAN LANGSUNG MUAT BOBOTNYA
+    inputs = layers.Input(shape=(input_dim,))
+    h = layers.Dense(128, activation='relu')(inputs)
+    h = layers.Dense(64, activation='relu')(h)
+    z_mean = layers.Dense(latent_dim)(h)
+    z_log_var = layers.Dense(latent_dim)(h)
 
     class SamplingLayer(layers.Layer):
         def call(self, inputs_sampling):
@@ -59,48 +60,26 @@ def load_ai_model():
             epsilon = tf.random.normal(shape=(batch, dim))
             return z_mean_val + tf.exp(0.5 * z_log_var_val) * epsilon
 
-    z = SamplingLayer(name='sampling_layer')([z_mean, z_log_var])
+    z = SamplingLayer()([z_mean, z_log_var])
     encoder = Model(inputs, [z_mean, z_log_var, z], name='encoder')
+    encoder.load_weights('encoder_bobot.h5') # MEMUAT FILE ENCODER
 
-    latent_inputs = layers.Input(shape=(latent_dim,), name='dec_input_layer')
-    h_decoded = layers.Dense(64, activation='relu', name='dec_dense_1')(latent_inputs)
-    h_decoded = layers.Dense(128, activation='relu', name='dec_dense_2')(h_decoded)
-    outputs = layers.Dense(input_dim, activation='sigmoid', name='dec_output_layer')(h_decoded)
+    # 2. BANGUN DECODER DAN LANGSUNG MUAT BOBOTNYA
+    latent_inputs = layers.Input(shape=(latent_dim,))
+    h_decoded = layers.Dense(64, activation='relu')(latent_inputs)
+    h_decoded = layers.Dense(128, activation='relu')(h_decoded)
+    outputs = layers.Dense(input_dim, activation='sigmoid')(h_decoded)
     decoder = Model(latent_inputs, outputs, name='decoder')
+    decoder.load_weights('decoder_bobot.h5') # MEMUAT FILE DECODER
 
-    class VAELossLayer(layers.Layer):
-        def __init__(self, input_dim_val, **kwargs):
-            super().__init__(**kwargs)
-            self.input_dim_val = input_dim_val
-        def call(self, inputs_loss):
-            original_inputs, outputs_vae_val, z_mean_val, z_log_var_val = inputs_loss
-            reconstruction_loss = tf.keras.losses.mse(original_inputs, outputs_vae_val)
-            reconstruction_loss *= self.input_dim_val
-            kl_loss = 1 + z_log_var_val - tf.square(z_mean_val) - tf.exp(z_log_var_val)
-            kl_loss = tf.reduce_mean(kl_loss)
-            kl_loss *= -0.5
-            vae_loss = tf.reduce_mean(reconstruction_loss + kl_loss)
-            self.add_loss(vae_loss)
-            return outputs_vae_val
-
-    z_mean_out, z_log_var_out, z_out = encoder(inputs)
-    outputs_vae = decoder(z_out)
-    outputs_with_loss = VAELossLayer(input_dim, name='vae_loss_layer')([inputs, outputs_vae, z_mean_out, z_log_var_out])
-
-    vae = Model(inputs, outputs_with_loss, name='vae')
-    vae.compile(optimizer='adam')
-    
-    dummy_input = tf.zeros((1, input_dim))
-    vae(dummy_input)
-    vae.load_weights('model_vae_bobot.weights.h5')
-    
     with open('scaler.pkl', 'rb') as f:
         scaler = pickle.load(f)
         
-    return vae, encoder, decoder, scaler
+    return encoder, decoder, scaler
 
 try:
-    vae_model, encoder_model, decoder_model, scaler_model = load_ai_model()
+    # Perhatikan, kita tidak memanggil vae_model lagi
+    encoder_model, decoder_model, scaler_model = load_ai_model()
 except Exception as e:
     st.error(f"⚠️ Gagal memuat model. Error: {e}")
     st.stop()

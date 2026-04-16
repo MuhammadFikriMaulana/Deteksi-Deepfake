@@ -97,8 +97,9 @@ history = vae.fit(
     callbacks=[early_stopping] 
 )
 
-# MENYIMPAN BOBOT YANG PALING OPTIMAL
-vae.save_weights('model_vae_bobot.weights.h5')
+# --- SIMPAN ENCODER DAN DECODER SECARA LANGSUNG ---
+encoder.save_weights('encoder_bobot.h5')
+decoder.save_weights('decoder_bobot.h5')
 
 plt.figure(figsize=(8, 5))
 plt.plot(history.history['loss'], label='Training Loss', color='blue', linewidth=2)
